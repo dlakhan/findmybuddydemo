@@ -1,15 +1,14 @@
-/* Person profile and connection request (PRD S3.4, S3.5, S4.1 to S4.3). */
-import { useState } from "react";
+/* Person profile and connection request (PRD S3.4, S3.5, S4.1 to S4.3; screen review 4). */
+import { useEffect, useState } from "react";
 import { PaperPlaneTilt, ChatsCircle, MapPin, HandWaving, Info } from "@phosphor-icons/react";
 import { SlotGrid } from "@/components/cards";
-import { Avatar, Btn, FieldError, Label, LinkBtn, Modal, ReliabilitySignal, ScreenHeader, Tag, inputCls } from "@/components/ui";
+import { Avatar, Btn, FieldError, Label, LinkBtn, Modal, PinnedBar, PinnedSpacer, ReasonChip, ReliabilitySignal, ScreenHeader, Tag, inputCls } from "@/components/ui";
 import { respondRequest, sendRequest } from "@/lib/actions";
 import { cn } from "@/lib/cn";
-import { distanceKm, distanceLabel, isFindable, levelLabel, relationFor, reliabilityOf } from "@/lib/rules";
+import { distanceKm, distanceLabel, findMatches, isFindable, levelIn, levelLabel, matchReasons, relationFor, reliabilityOf, tagCounts } from "@/lib/rules";
 import { navigate, query, usePath } from "@/lib/router";
 import { me as getMe, track, useStore, userById } from "@/lib/store";
 import { toast } from "@/lib/toast";
-import { useEffect } from "react";
 
 export function Person({ id }: { id: string }) {
   const s = useStore();
@@ -26,11 +25,14 @@ export function Person({ id }: { id: string }) {
   useEffect(() => { if (person) track("profile_viewed", { id }); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!person || person.id === me.id) {
-    return <><ScreenHeader backTo={from} title="Profile" /><p className="p-4 text-ink-2">This profile isn't available.</p></>;
+    return <><ScreenHeader backTo={from} title="" /><p className="p-4 text-ink-2">This profile isn't available.</p></>;
   }
   const name = person.givenName;
   const km = distanceKm(me.area, person.area);
   const rel = relationFor(s, me.id, person.id);
+  // Same reasons as the match card, worked out even when they sit outside my travel distance
+  const m = findMatches({ ...me, travelKm: 10_000 }, [person])[0];
+  const reasons = m ? matchReasons(m) : [];
 
   const send = () => {
     if (!isFindable(me)) { setErr("Finish your profile first so they can see who you are."); return; }
@@ -52,34 +54,45 @@ export function Person({ id }: { id: string }) {
   };
 
   return (
-    <div className="min-h-dvh bg-page pb-[calc(var(--sab)+24px)]">
-      <ScreenHeader backTo={from} title={name} />
+    <div className="min-h-dvh bg-page">
+      <ScreenHeader backTo={from} title="" />
       <article className="mx-auto max-w-[600px] px-4 pt-6">
         <div className="flex items-center gap-4">
           <Avatar name={name} url={person.photo} size={72} />
-          <div>
-            <h1 className="t-heading">{name}</h1>
-            <p className="flex items-center gap-1 t-small text-ink-2"><MapPin size={16} aria-hidden />{person.area}{km !== null && ` · ${distanceLabel(km)}`}</p>
+          <div className="min-w-0">
+            <h1 className="t-title-2">{name}</h1>
+            <p className="flex items-center gap-1 t-small text-ink-2"><MapPin size={16} className="shrink-0" aria-hidden />{person.area}{km !== null && ` · ${distanceLabel(km)}`}</p>
           </div>
         </div>
+        {reasons.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{reasons.map((r) => <ReasonChip key={r}>{r}</ReasonChip>)}</div>}
 
         {rel.kind === "incoming" && (
           <div className="mt-6 rounded-[12px] border border-hairline bg-surface p-4">
             <p className="flex items-center gap-2 t-strong"><HandWaving size={20} className="text-marigold-800" aria-hidden />{name} wants to play! Take a look.</p>
             {rel.c.note && <p className="mt-2 rounded-[8px] bg-neutral-100 p-3 t-small text-ink">"{rel.c.note}"</p>}
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <Btn onClick={() => respond(true)}>Accept</Btn>
-              <Btn variant="secondary" onClick={() => setConfirmDecline(true)}>Decline</Btn>
-            </div>
           </div>
         )}
 
-        <section className="mt-6"><h2 className="t-label text-ink-2">Reliability</h2><div className="mt-2"><ReliabilitySignal r={reliabilityOf(person.id, s)} max={10} /></div></section>
+        <section className="mt-6">
+          <h2 className="t-label text-ink-2">Reliability</h2>
+          <div className="mt-2"><ReliabilitySignal r={reliabilityOf(person.id, s)} max={10} tags={tagCounts(person.id, s)} /></div>
+          <p className="mt-2 t-caption text-ink-muted">Based on what people they met reported.</p>
+        </section>
 
         <section className="mt-6">
           <h2 className="t-label text-ink-2">Activities</h2>
-          <ul className="mt-2 grid gap-1">
-            {person.activities.map((a) => <li key={a.name}><span className="t-strong">{a.name}</span> <span className="t-small text-ink-2">· {levelLabel(a.level)}</span></li>)}
+          <ul className="mt-2 grid gap-2">
+            {person.activities.map((a) => {
+              const mine = levelIn(me, a.name);
+              const shared = me.activities.some((x) => x.name.toLowerCase() === a.name.toLowerCase());
+              return (
+                <li key={a.name} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="t-strong">{a.name}</span>
+                  <span className="t-small text-ink-2">· {levelLabel(a.level)}{shared && mine && mine !== a.level ? ` · you: ${levelLabel(mine)}` : ""}</span>
+                  {shared && <Tag tone="success">You both play</Tag>}
+                </li>
+              );
+            })}
           </ul>
         </section>
 
@@ -92,23 +105,26 @@ export function Person({ id }: { id: string }) {
         {person.lookingFor && (
           <section className="mt-6"><h2 className="t-label text-ink-2">Looking for</h2><p className="mt-1 measure">{person.lookingFor}</p></section>
         )}
-
-        <div className="mt-8">
-          {(rel.kind === "none" || rel.kind === "disconnected") && (
-            <>
-              {rel.kind === "disconnected" && <p className="mb-3 flex items-start gap-2 t-small text-ink-2"><Info size={18} className="mt-[1px] shrink-0" aria-hidden />You're no longer connected. You can send a fresh request.</p>}
-              <Btn block onClick={() => { setErr(""); setOpen(true); }}><PaperPlaneTilt size={20} aria-hidden />Send request</Btn>
-            </>
-          )}
-          {rel.kind === "sent" && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Tag tone="info" icon={PaperPlaneTilt}>Request sent</Tag>
-              <span className="t-small text-ink-2">You'll see it in Chats when {name} replies.</span>
-            </div>
-          )}
-          {rel.kind === "connected" && <LinkBtn block to={`/chats/${rel.c.id}`}><ChatsCircle size={20} aria-hidden />Open chat</LinkBtn>}
-        </div>
+        {rel.kind === "disconnected" && <p className="mt-6 flex items-start gap-2 t-small text-ink-2"><Info size={18} className="mt-[1px] shrink-0" aria-hidden />You're no longer connected. You can send a fresh request.</p>}
+        <PinnedSpacer h={rel.kind === "sent" ? 72 : 96} />
       </article>
+
+      <PinnedBar>
+        {(rel.kind === "none" || rel.kind === "disconnected") && <Btn block onClick={() => { setErr(""); setOpen(true); }}><PaperPlaneTilt size={20} aria-hidden />Send request</Btn>}
+        {rel.kind === "incoming" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Btn onClick={() => respond(true)}>Accept</Btn>
+            <Btn variant="secondary" onClick={() => setConfirmDecline(true)}>Decline</Btn>
+          </div>
+        )}
+        {rel.kind === "sent" && (
+          <div className="flex min-h-11 flex-wrap items-center gap-3">
+            <Tag tone="info" icon={PaperPlaneTilt}>Request sent</Tag>
+            <span className="t-small text-ink-2">You'll see it in Chats when {name} replies.</span>
+          </div>
+        )}
+        {rel.kind === "connected" && <LinkBtn block to={`/chats/${rel.c.id}`}><ChatsCircle size={20} aria-hidden />Open chat</LinkBtn>}
+      </PinnedBar>
 
       <Modal open={open} onOpenChange={setOpen} title={`Send ${name} a request`} description="Add a short note if you like. If they accept, you can chat and plan a meetup.">
         <Label htmlFor="req-note">Note (optional)</Label>

@@ -26,6 +26,7 @@ const QUICK_PICKS = [
   { label: "Weekday evenings", slots: WEEKDAYS.map((d) => `${d}-evening`) },
   { label: "Weekend mornings", slots: WEEKEND.map((d) => `${d}-morning`) },
   { label: "Weekend afternoons", slots: WEEKEND.map((d) => `${d}-afternoon`) },
+  { label: "Weekend evenings", slots: WEEKEND.map((d) => `${d}-evening`) },
 ];
 
 const PHRASES = ["Someone at my level", "A regular weekly game", "Patient with beginners", "Happy to split court costs", "Just for fun"];
@@ -53,6 +54,8 @@ export function Wizard({ step: raw }: { step: string }) {
   useEffect(() => { track("wizard_step_reached", { step }); setErr(""); setCard(0); }, [step]);
 
   const go = (to: WizardStep | "done") => {
+    // Editing activities carries on to levels, so one edit covers both (screen review 11)
+    if (edit && step === "activities" && to === "skill") { navigate("/setup/skill?edit=1"); return; }
     if (edit || to === "done") { navigate(edit ? "/profile" : "/matches"); return; }
     navigate(`/setup/${to}`);
   };

@@ -1,6 +1,6 @@
 /* Demo storyline. All times are relative to when the data is created, so the demo always looks current.
    Personas (sign in as them): Ashwin, Elena, Nala. Everyone else is a seeded community member who responds automatically. */
-import { CURATED_ACTIVITIES, type Level, type OutcomeReason, type Provider } from "./data";
+import { CURATED_ACTIVITIES, type GroupLevel, type Level, type OutcomeReason, type Provider, type TagId } from "./data";
 import type { Attendee, Connection, Meetup, Message, Outcome, State, User } from "./model";
 
 const H = 3600_000;
@@ -89,15 +89,22 @@ export function buildSeed(nowMs: number): State {
   let n = 0;
   const mid = () => `m${++n}`;
 
-  type Report = { show?: boolean; rating?: number };
+  /** Seeded tags: deterministic per reporter and subject, roughly three in four ratings carry each tag. */
+  const TAG_IDS: TagId[] = ["level", "company", "on_time"];
+  const tagsFor = (key: string, rating: number): TagId[] => {
+    if (rating < 4) return [];
+    let h = 0;
+    for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return TAG_IDS.filter((_, i) => ((h >> (i * 3)) & 3) !== 0);
+  };
   /** A past meetup with outcome reports. `skipReporter` leaves that person's own report missing, which triggers their prompt. */
   const past = (
     type: Meetup["type"], startsAt: number, activity: string, place: string,
     people: { id: string; role: Attendee["role"]; show?: boolean }[],
-    ratings: Record<string, number> = {}, skipReporter?: string, spots = 0,
+    ratings: Record<string, number> = {}, skipReporter?: string, spots = 0, level?: GroupLevel,
   ) => {
     const id = mid();
-    meetups.push({ id, type, createdBy: people[0]!.id, activity, startsAt: iso(startsAt), place, note: "", spots, status: "scheduled", createdAt: iso(startsAt - 5 * D) });
+    meetups.push({ id, type, createdBy: people[0]!.id, activity, startsAt: iso(startsAt), place, note: "", spots, status: "scheduled", createdAt: iso(startsAt - 5 * D), ...(level ? { level } : {}) });
     for (const p of people) attendees.push({ meetupId: id, userId: p.id, role: p.role, status: "accepted", at: iso(startsAt - 5 * D), respondedAt: iso(startsAt - 4 * D) });
     for (const r of people) {
       if (r.id === skipReporter) continue;
@@ -110,7 +117,8 @@ export function buildSeed(nowMs: number): State {
         } else if (!sShowed) {
           outcomes.push({ meetupId: id, reporter: r.id, subject: s.id, happened: false, reason: "no_show", at: iso(startsAt + 2 * H) });
         } else {
-          outcomes.push({ meetupId: id, reporter: r.id, subject: s.id, happened: true, rating: ratings[`${r.id}>${s.id}`] ?? ratings[s.id] ?? 5, at: iso(startsAt + 2 * H) });
+          const rating = ratings[`${r.id}>${s.id}`] ?? ratings[s.id] ?? 5;
+          outcomes.push({ meetupId: id, reporter: r.id, subject: s.id, happened: true, rating, tags: tagsFor(`${id}${r.id}${s.id}`, rating), at: iso(startsAt + 2 * H) });
         }
       }
     }
@@ -147,14 +155,14 @@ export function buildSeed(nowMs: number): State {
   // Nala's Thursday doubles, weekly. Noah missed one after his shifts changed.
   const lastThu = lastDow(4, 19);
   past("group", lastThu - 21 * D, "Badminton", "Queen's Park Arena, court 2",
-    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee" }, { id: "marcus", role: "joiner" }], { "lena>nadia": 5, "marcus>tomas": 4 }, undefined, 1);
+    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee" }, { id: "marcus", role: "joiner" }], { "lena>nadia": 5, "marcus>tomas": 4 }, undefined, 1, "intermediate");
   past("group", lastThu - 14 * D, "Badminton", "Queen's Park Arena, court 2",
-    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee", show: false }, { id: "marcus", role: "joiner" }], { "marcus>nadia": 4 }, undefined, 1);
+    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee", show: false }, { id: "marcus", role: "joiner" }], { "marcus>nadia": 4 }, undefined, 1, "intermediate");
   past("group", lastThu - 7 * D, "Badminton", "Queen's Park Arena, court 2",
-    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee" }, { id: "ravi", role: "joiner" }], { "ravi>lena": 4 }, undefined, 1);
+    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee" }, { id: "ravi", role: "joiner" }], { "ravi>lena": 4 }, undefined, 1, "intermediate");
   // Last Thursday: everyone else has answered. Nala's group prompt is waiting.
   const lastGroup = past("group", lastThu, "Badminton", "Queen's Park Arena, court 2",
-    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee" }, { id: "marcus", role: "joiner" }], { "marcus>tomas": 4 }, "nadia", 1);
+    [{ id: "nadia", role: "creator" }, { id: "lena", role: "invitee" }, { id: "tomas", role: "invitee" }, { id: "marcus", role: "joiner" }], { "marcus>tomas": 4 }, "nadia", 1, "intermediate");
   one("nadia", "jordan", 40, "Hiking", "Buntzen Lake", { nadia: 5, jordan: 5 }, {}, undefined, 9);
   one("jordan", "nadia", 20, "Hiking", "Quarry Rock, Deep Cove", { nadia: 5, jordan: 4 }, {}, undefined, 8);
 
@@ -179,16 +187,16 @@ export function buildSeed(nowMs: number): State {
     [accepted("marcus", "creator"), accepted("arjun", "invitee")]);
 
   const nextThu = nextDow(4, 19);
-  const thursday = future({ type: "group", createdBy: "nadia", activity: "Badminton", startsAt: iso(nextThu), place: "Queen's Park Arena, court 2", note: "Doubles, 7 to 9. Court is paid for, split between us.", spots: 2, createdAt: iso(nowMs - 2 * D) },
+  const thursday = future({ type: "group", createdBy: "nadia", activity: "Badminton", startsAt: iso(nextThu), place: "Queen's Park Arena, court 2", note: "Doubles, 7 to 9. Court is paid for, split between us.", spots: 2, level: "intermediate", createdAt: iso(nowMs - 2 * D) },
     [accepted("nadia", "creator"), accepted("lena", "invitee"),
       { userId: "tomas", role: "invitee", status: "invited", at: iso(nowMs - 2 * D) },
       { userId: "daniel", role: "joiner", status: "requested", note: "I'm intermediate and free Thursday evenings. Would love to fill in.", at: iso(nowMs - 5 * H) }]);
 
   const nextSat = nextDow(6, 10);
-  future({ type: "group", createdBy: "mei", activity: "Pickleball", startsAt: iso(nextSat), place: "Minoru Park courts, Richmond", note: "Friendly doubles, all levels welcome. Spare paddles available.", spots: 2 },
+  future({ type: "group", createdBy: "mei", activity: "Pickleball", startsAt: iso(nextSat), place: "Minoru Park courts, Richmond", note: "Friendly doubles. Spare paddles available.", spots: 2, level: "intermediate" },
     [accepted("mei", "creator"), accepted("ben", "invitee")]);
   const nextSun = nextDow(0, 8);
-  future({ type: "group", createdBy: "jordan", activity: "Hiking", startsAt: iso(nextSun), place: "Lynn Canyon Park, main lot", note: "Moderate pace, about 3 hours. Bring water.", spots: 3 },
+  future({ type: "group", createdBy: "jordan", activity: "Hiking", startsAt: iso(nextSun), place: "Lynn Canyon Park, main lot", note: "Moderate pace, about 3 hours. Bring water.", spots: 3, level: "all" },
     [accepted("jordan", "creator"), accepted("sofia", "invitee")]);
 
   // Elena: Isobel has proposed Saturday pickleball, waiting for Elena. Owen and Elena are set for Sunday.
@@ -261,7 +269,7 @@ export function buildSeed(nowMs: number): State {
   void yesterday; void arjunMarcus; void hannahProposal;
 
   return {
-    v: 4,
+    v: 5,
     seededAt: now.toISOString(),
     session: null,
     users,

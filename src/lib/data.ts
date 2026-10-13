@@ -65,6 +65,21 @@ export const OUTCOME_REASONS = [
 ] as const;
 export type OutcomeReason = (typeof OUTCOME_REASONS)[number]["id"];
 
+/** Optional, positive only tags given with a rating (screen review 8). Shown once 3 or more people give one. */
+export const TAGS = [
+  { id: "level", label: "Level as stated", said: "level as stated" },
+  { id: "company", label: "Good company", said: "good company" },
+  { id: "on_time", label: "On time", said: "on time" },
+] as const;
+export type TagId = (typeof TAGS)[number]["id"];
+export const TAG_MIN = 3;
+
+/** Group level set by the host (screen review 10). "all" welcomes every level. */
+export type GroupLevel = Level | "all";
+export const GROUP_LEVELS: { id: GroupLevel; label: string }[] = [
+  { id: "beginner", label: "Beginner" }, { id: "intermediate", label: "Intermediate" }, { id: "advanced", label: "Advanced" }, { id: "all", label: "All levels" },
+];
+
 export const CONTACT_EMAIL = "privacy@findmybuddy.app";
 
 /** Simple screen for user added activities (PRD 5.3 rule 6). No human review step. */

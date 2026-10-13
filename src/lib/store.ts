@@ -4,7 +4,7 @@ import type { State, User } from "./model";
 import { buildSeed } from "./seed";
 
 const KEY = "fmb-demo-v1";
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 /** Seeded times are relative to when the demo data was created, so stale data is rebuilt after this long. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -94,4 +94,19 @@ export const fmtShort = (iso: string) => {
   if (days < 1 && new Date().getDate() === d.getDate()) return fmtTime(iso);
   if (days < 7) return d.toLocaleDateString("en-CA", { weekday: "short" });
   return d.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+};
+/** "Thu Oct 15" */
+export const fmtDate = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("en-CA", { weekday: "short" })} ${d.toLocaleDateString("en-CA", { month: "short", day: "numeric" })}`;
+};
+/** Day divider in chats: Today, Yesterday, a weekday within the last week, otherwise a date (screen review 6). */
+export const fmtDivider = (iso: string) => {
+  const d = new Date(iso);
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((start(new Date()) - start(d)) / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days > 1 && days < 7) return d.toLocaleDateString("en-CA", { weekday: "long" });
+  return d.toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric" });
 };

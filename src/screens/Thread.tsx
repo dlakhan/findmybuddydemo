@@ -1,14 +1,14 @@
-/* One to one chat with inline meetup cards and Disconnect (PRD S5.1, S6, S8.1, S10.1). */
+/* One to one chat with inline meetup cards, a More menu and day dividers (PRD S5.1, S6, S8.1, S10.1; screen review 6). */
 import { useEffect, useRef, useState } from "react";
-import { PaperPlaneRight, CalendarPlus, LinkBreak, Info } from "@phosphor-icons/react";
+import { PaperPlaneRight, CalendarPlus, LinkBreak, Info, DotsThree, UserCircle } from "@phosphor-icons/react";
 import { MeetupCard, ProposeMeetup } from "@/components/MeetupCard";
 import { Avatar, Btn, FieldError, Modal, ScreenHeader } from "@/components/ui";
 import { disconnect, markRead, sendMessage, sharedGroups } from "@/lib/actions";
 import { cn } from "@/lib/cn";
 import { threadOf } from "@/lib/model";
 import { attendeesOf, otherOf } from "@/lib/rules";
-import { Link, navigate } from "@/lib/router";
-import { fmtDay, fmtTime, me as getMe, useStore, userById } from "@/lib/store";
+import { Link, navigate, query, usePath } from "@/lib/router";
+import { fmtDay, fmtDivider, fmtTime, me as getMe, useStore, userById } from "@/lib/store";
 import { toast } from "@/lib/toast";
 
 export function Thread({ id }: { id: string }) {
@@ -24,7 +24,11 @@ export function Thread({ id }: { id: string }) {
   const meetups = pairMeetups.filter((m) => new Date(m.startsAt).getTime() > Date.now() || pastOnes.includes(m));
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
-  const [propose, setPropose] = useState(false);
+  // "Plan again" opens the chat with Propose ready and the activity and place filled in (screen review 7)
+  const q = query(usePath());
+  const [propose, setPropose] = useState(q.get("propose") === "1");
+  const initial = { activity: q.get("activity") ?? undefined, place: q.get("place") ?? undefined };
+  const [menu, setMenu] = useState(false);
   const [disc, setDisc] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const count = msgs.length + meetups.length;
@@ -59,21 +63,45 @@ export function Thread({ id }: { id: string }) {
           <Avatar name={name} url={other.photo} size={32} /><span className="truncate">{name}</span>
         </Link>
       }>
-        {!readOnly && <Btn variant="tertiary" className="px-2 t-label" onClick={() => setDisc(true)}><LinkBreak size={18} aria-hidden />Disconnect</Btn>}
+        <div className="relative">
+          <Btn variant="tertiary" className="px-2 t-label no-underline" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}><DotsThree size={22} weight="bold" aria-hidden />More</Btn>
+          {menu && (
+            <>
+              <div className="fixed inset-0 z-10" aria-hidden onClick={() => setMenu(false)} />
+              <div role="menu" className="absolute right-0 top-12 z-20 w-56 origin-top-right animate-[sheet-in_150ms_var(--ease-out)_both] rounded-[12px] border border-hairline bg-surface p-1 shadow-[var(--shadow-menu)]">
+                <Link role="menuitem" to={`/people/${other.id}?from=/chats/${id}`} className="flex min-h-11 items-center gap-2 rounded-[8px] px-3 hover:bg-neutral-100"><UserCircle size={20} aria-hidden />View profile</Link>
+                {!readOnly && (
+                  <button role="menuitem" type="button" onClick={() => { setMenu(false); setDisc(true); }} className="flex min-h-11 w-full items-center gap-2 rounded-[8px] px-3 text-danger-600 hover:bg-danger-50">
+                    <LinkBreak size={20} aria-hidden />Disconnect
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </ScreenHeader>
 
       <div className="mx-auto w-full max-w-[600px] flex-1 space-y-3 px-4 py-4">
         {items.length === 0 && <p className="py-8 text-center text-ink-2">You're connected! Say hi and find a time that works.</p>}
-        {items.map((it) => it.kind === "msg" ? (
-          <div key={it.v.id} className={cn("flex", it.v.from === me.id ? "justify-end" : "justify-start")}>
+        {items.map((it, i) => {
+          const day = new Date(it.at).toDateString();
+          const divider = i === 0 || new Date(items[i - 1]!.at).toDateString() !== day;
+          return (
+            <div key={it.v.id}>
+              {divider && <p className="my-3 text-center t-caption font-bold text-ink-muted" role="separator">{fmtDivider(it.at)}</p>}
+              {it.kind === "msg" ? (
+          <div className={cn("flex", it.v.from === me.id ? "justify-end" : "justify-start")}>
             <div className={cn("max-w-[80%] rounded-[12px] px-4 py-2", it.v.from === me.id ? "bg-brand-600 text-white" : "border border-hairline bg-surface")}>
               <p className="whitespace-pre-wrap break-words">{it.v.body}</p>
-              <p className={cn("mt-1 t-caption", it.v.from === me.id ? "text-brand-100" : "text-ink-muted")}>{fmtDay(it.v.at).slice(0, 3)} {fmtTime(it.v.at)}</p>
+              <p className={cn("mt-1 t-caption", it.v.from === me.id ? "text-brand-100" : "text-ink-muted")}>{fmtTime(it.v.at)}</p>
             </div>
           </div>
-        ) : (
-          <div key={it.v.id} className="mx-auto max-w-sm"><MeetupCard m={it.v} /></div>
-        ))}
+              ) : (
+                <div className="mx-auto max-w-sm"><MeetupCard m={it.v} /></div>
+              )}
+            </div>
+          );
+        })}
         <div ref={endRef} style={{ scrollMarginBottom: 180 }} />
       </div>
 
@@ -97,7 +125,7 @@ export function Thread({ id }: { id: string }) {
         </div>
       </div>
 
-      <ProposeMeetup open={propose} onOpenChange={setPropose} connectionId={id} other={other} me={me} />
+      <ProposeMeetup open={propose} onOpenChange={setPropose} connectionId={id} other={other} me={me} initial={initial} />
       {disc && <DisconnectDialog connectionId={id} otherId={other.id} name={name} onClose={() => setDisc(false)} />}
     </div>
   );
@@ -129,7 +157,7 @@ function DisconnectDialog({ connectionId, otherId, name, onClose }: { connection
         <input type="checkbox" className="mt-[2px] h-5 w-5 shrink-0 accent-[var(--color-brand-600)]" checked={noRerequest} onChange={(e) => setNoRerequest(e.target.checked)} />
         <span><span className="block">Don't let {name} send me requests again</span><span className="block t-small text-ink-2">{name} won't be told. Any new request from them simply won't reach you.</span></span>
       </label>
-      <div className="mt-6 grid grid-cols-2 gap-3">
+      <div className="mt-6 grid gap-3">
         <Btn variant="danger-fill" onClick={() => {
           disconnect(connectionId, { noRerequest, withdrawFrom });
           toast(`You're no longer connected with ${name}.`, "neutral");

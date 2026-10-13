@@ -112,7 +112,7 @@ export function App() {
   else if (path === "/chats") { screen = <Chats />; tabs = true; }
   else if ((p = match("/chats/:id", path))) screen = <Thread key={p["id"]} id={p["id"]!} />;
   else if (path === "/meetups") { screen = <Meetups />; tabs = true; }
-  else if (path === "/meetups/new") screen = <NewGroup />;
+  else if (path.split("?")[0] === "/meetups/new") screen = <NewGroup />;
   else if ((p = match("/meetups/:id", path))) screen = <MeetupDetail key={p["id"]} id={p["id"]!} />;
   else if (path === "/profile") { screen = <Profile />; tabs = true; }
 

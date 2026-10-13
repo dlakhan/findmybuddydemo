@@ -1,12 +1,13 @@
-/* Meetups: what needs a reply, what's coming up, and past meetups. Group meetups live here too (PRD S6, S7). */
-import { CalendarDots, CalendarBlank, MapPin, UsersThree, Plus, HandWaving, Clock, EnvelopeSimple } from "@phosphor-icons/react";
+/* Meetups: what needs a reply, what's coming up, and past meetups. Group meetups live here too (PRD S6, S7; screen review 7). */
+import { useState } from "react";
+import { CalendarDots, CalendarBlank, MapPin, UsersThree, Plus, HandWaving, Clock, EnvelopeSimple, ArrowClockwise } from "@phosphor-icons/react";
 import { TabPage } from "@/components/layout";
 import { MeetupCard } from "@/components/MeetupCard";
 import { EmptyState, LinkBtn, StatusTag, Tag } from "@/components/ui";
 import type { Meetup, State, User } from "@/lib/model";
-import { attendeesOf, going, isPast, meetupView, spotsLeft } from "@/lib/rules";
+import { attendeesOf, going, isPast, meetupView, relationFor, spotsLeft } from "@/lib/rules";
 import { Link } from "@/lib/router";
-import { fmtDay, fmtWhen, me as getMe, useStore, userById } from "@/lib/store";
+import { fmtDate, fmtDay, fmtWhen, me as getMe, useStore, userById } from "@/lib/store";
 
 export function GroupCard({ m, s, me }: { m: Meetup; s: State; me: User }) {
   const host = userById(s, m.createdBy)!;
@@ -29,6 +30,31 @@ export function GroupCard({ m, s, me }: { m: Meetup; s: State; me: User }) {
   );
 }
 
+/** Compact past row: activity, who or "Group", date, status, and "Plan again" when it went ahead (supports G2). */
+function PastRow({ m, s, me }: { m: Meetup; s: State; me: User }) {
+  const view = meetupView(m, me.id, s);
+  const other = m.type === "one_to_one" ? userById(s, attendeesOf(s, m.id).find((a) => a.userId !== me.id)?.userId) : undefined;
+  // The live connection with that person, so "Plan again" opens today's chat even for older meetups
+  const rel = other ? relationFor(s, me.id, other.id) : undefined;
+  const chatId = rel?.kind === "connected" ? rel.c.id : undefined;
+  const again = view === "completed" && (m.type === "group" || chatId)
+    ? m.type === "group"
+      ? `/meetups/new?again=${m.id}`
+      : `/chats/${chatId}?propose=1&activity=${encodeURIComponent(m.activity)}&place=${encodeURIComponent(m.place)}`
+    : null;
+  return (
+    <div className="flex items-center gap-3 px-4 py-2">
+      <Link to={m.type === "group" ? `/meetups/${m.id}` : chatId ? `/chats/${chatId}` : "/meetups"} className="min-w-0 flex-1 py-1">
+        <p className="truncate t-strong">{m.activity} <span className="font-normal text-ink-2">· {m.type === "group" ? "Group" : other?.givenName ?? ""}</span></p>
+        <p className="flex flex-wrap items-center gap-x-2 t-small text-ink-2">{fmtDate(m.startsAt)}<StatusTag status={view} /></p>
+      </Link>
+      {again && (
+        <Link to={again} className="inline-flex min-h-11 shrink-0 items-center gap-1 t-label text-brand-600"><ArrowClockwise size={16} aria-hidden />Plan again</Link>
+      )}
+    </div>
+  );
+}
+
 export function Meetups() {
   const s = useStore();
   const me = getMe(s)!;
@@ -45,12 +71,14 @@ export function Meetups() {
     (m.type === "group" && m.status === "scheduled" && (att(m).status === "accepted" || att(m).status === "requested"))
   )).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const past = list.filter((m) => !toReply.includes(m) && !upcoming.includes(m) && (m.type === "one_to_one" || att(m).status === "accepted" || att(m).status === "withdrawn"))
-    .sort((a, b) => b.startsAt.localeCompare(a.startsAt)).slice(0, 12);
+    .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+  const [allPast, setAllPast] = useState(false);
+  const pastShown = allPast ? past : past.slice(0, 3);
 
   const card = (m: Meetup) => (m.type === "one_to_one" ? <MeetupCard m={m} showWith /> : <GroupCard m={m} s={s} me={me} />);
 
   return (
-    <TabPage me={me} title="Meetups" action={<LinkBtn variant="secondary" to="/meetups/new" className="shrink-0 px-3"><Plus size={18} aria-hidden />Group</LinkBtn>}>
+    <TabPage me={me} title="Meetups" action={<LinkBtn variant="secondary" to="/meetups/new" className="shrink-0 px-3"><Plus size={18} aria-hidden />New group</LinkBtn>}>
       {!list.length && !joinRequests.length ? (
         <EmptyState icon={CalendarDots} title="No meetups yet" body="Once you're connected with someone, propose a time from your chat. Or plan a group meetup and invite your connections."
           action={<LinkBtn to="/chats">Go to chats</LinkBtn>} />
@@ -86,7 +114,10 @@ export function Meetups() {
           {past.length > 0 && (
             <section className="mt-8">
               <h2 className="t-heading">Past</h2>
-              <ul className="mt-3 flex flex-col gap-3">{past.map((m) => <li key={m.id}>{card(m)}</li>)}</ul>
+              <ul className="mt-3 divide-y divide-hairline rounded-[12px] border border-hairline bg-surface">{pastShown.map((m) => <li key={m.id}><PastRow m={m} s={s} me={me} /></li>)}</ul>
+              {past.length > 3 && !allPast && (
+                <button type="button" onClick={() => setAllPast(true)} className="mt-2 inline-flex min-h-11 items-center t-label text-brand-600 underline underline-offset-4">Show all past meetups ({past.length})</button>
+              )}
             </section>
           )}
         </>

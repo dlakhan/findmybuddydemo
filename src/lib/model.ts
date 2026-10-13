@@ -1,5 +1,5 @@
 /* Data model, following PRD section 6.1. Stored in the browser for the prototype; shaped so a real backend can replace it. */
-import type { Level, OutcomeReason, Provider } from "./data";
+import type { GroupLevel, Level, OutcomeReason, Provider, TagId } from "./data";
 
 export type Activity = { name: string; level: Level | null };
 
@@ -56,6 +56,8 @@ export type Meetup = {
   note: string;
   /** Group only: open slots for people to request. Withdrawals add a slot back. */
   spots: number;
+  /** Group only: the level the host is looking for. */
+  level?: GroupLevel;
   status: MeetupStatus;
   connectionId?: string;
   cancelledBy?: string;
@@ -84,6 +86,8 @@ export type Outcome = {
   happened: boolean;
   reason?: OutcomeReason;
   rating?: number;
+  /** Optional positive tags, only with a rating. */
+  tags?: TagId[];
   at: string;
 };
 

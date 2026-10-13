@@ -16,7 +16,7 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean;
   block?: boolean;
 };
-const btnBase = "inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] px-4 t-strong transition-[transform,background-color,border-color] duration-150 ease-[var(--ease-out)] active:scale-[0.97]";
+const btnBase = "inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] px-4 t-strong transition-[transform,background-color,border-color] duration-150 ease-[var(--ease-out)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100";
 const btnVariant = {
   primary: "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800",
   secondary: "border border-brand-600 bg-surface text-brand-600 hover:bg-brand-50",
@@ -137,6 +137,30 @@ export function Label({ htmlFor, children }: { htmlFor: string; children: ReactN
   return <label htmlFor={htmlFor} className="mb-2 block t-label">{children}</label>;
 }
 
+/** Separate native Date and Time pickers (screen review 6). Errors are shown by the caller. */
+export function DateTimeFields({ idPrefix, date, time, onDate, onTime, invalid }: {
+  idPrefix: string; date: string; time: string; onDate: (v: string) => void; onTime: (v: string) => void; invalid?: boolean;
+}) {
+  const today = new Date();
+  const min = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label htmlFor={`${idPrefix}-date`}>Date</Label><input id={`${idPrefix}-date`} type="date" min={min} className={inputCls(invalid)} value={date} onChange={(e) => onDate(e.target.value)} /></div>
+      <div><Label htmlFor={`${idPrefix}-time`}>Time</Label><input id={`${idPrefix}-time`} type="time" className={inputCls(invalid)} value={time} onChange={(e) => onTime(e.target.value)} /></div>
+    </div>
+  );
+}
+/** Validates a Date and Time pair. Returns the ISO time or an error message. */
+export function checkWhen(date: string, time: string): { iso: string } | { error: string } {
+  if (!date && !time) return { error: "Pick a date and a time." };
+  if (!date) return { error: "Pick a date." };
+  if (!time) return { error: "Pick a time." };
+  const t = new Date(`${date}T${time}`);
+  if (isNaN(t.getTime())) return { error: "Pick a date and a time." };
+  if (t.getTime() <= Date.now()) return { error: "That time has already passed. Pick a time in the future." };
+  return { iso: t.toISOString() };
+}
+
 export function Avatar({ name, url, size = 56 }: { name: string; url?: string | null; size?: number }) {
   const initial = (name.trim()[0] ?? "?").toUpperCase();
   return url ? (
@@ -148,8 +172,13 @@ export function Avatar({ name, url, size = 56 }: { name: string; url?: string | 
   );
 }
 
-/** Attendance record first, rating second. Never red, never a zero score (Layer 6a). */
-export function ReliabilitySignal({ r, max = 5, animateFirst = false }: { r: Reliability | null | undefined; max?: number; animateFirst?: boolean }) {
+export type TagCount = { id: string; label: string; said: string; count: number };
+
+/** Rating leads ("4.6 ★ by 8 buddies"), attendance sits under it, then tags given by 3 or more (screen review 8 and 11).
+    Never red, never a zero score (Layer 6a). `tags="top"` shows only the most given tag, for cards. */
+export function ReliabilitySignal({ r, max = 5, animateFirst = false, tags, tagMode = "all" }: {
+  r: Reliability | null | undefined; max?: number; animateFirst?: boolean; tags?: TagCount[]; tagMode?: "all" | "top";
+}) {
   const v = reliabilityView(r, max);
   if (v.kind === "new") {
     return (
@@ -159,24 +188,40 @@ export function ReliabilitySignal({ r, max = 5, animateFirst = false }: { r: Rel
       </div>
     );
   }
+  const shown = (tags ?? []).slice(0, tagMode === "top" ? 1 : 3);
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="t-strong">{v.line1}</span>
+      {v.rating && (
+        <p className="t-strong" aria-label={v.ratingA11y}>
+          <span aria-hidden>{v.rating.split(" ★ ")[0]} <span className="text-marigold-400">★</span> {v.rating.split(" ★ ")[1]}</span>
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className={v.rating ? "t-small text-ink-2" : "t-strong"}>{v.line1}</span>
         <span role="img" aria-label={v.a11y} className="flex gap-[3px]">
           {v.marks.map((m, i) => (
             <span key={m.meetupId} className={cn("h-3 w-3 rounded-[3px]", m.attended ? "bg-brand-600" : "border-[1.5px] border-field", animateFirst && i === 0 && "animate-mark")} />
           ))}
         </span>
       </div>
-      <p className="t-small text-ink-2">{v.line2}</p>
+      {!v.rating && <p className="t-small text-ink-2">{v.line2}</p>}
+      {shown.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {shown.map((t) => (
+            <li key={t.id} className="inline-flex min-h-7 items-center gap-1 rounded-full bg-neutral-100 px-3 t-caption text-ink-2">
+              <Check size={12} weight="bold" aria-hidden className="text-brand-600" />
+              {tagMode === "top" ? `${t.count} said ${t.said}` : `${t.count} buddies said ${t.said}`}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
 /* Dialog: focus moves in and is trapped, Escape closes when dismissable, focus returns on close. */
-export function Modal({ open, onOpenChange, title, description, children, dismissable = true }: {
-  open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: ReactNode; children: ReactNode; dismissable?: boolean;
+export function Modal({ open, onOpenChange, title, description, children, dismissable = true, stickyTitle = false }: {
+  open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: ReactNode; children: ReactNode; dismissable?: boolean; stickyTitle?: boolean;
 }) {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
@@ -219,9 +264,11 @@ export function Modal({ open, onOpenChange, title, description, children, dismis
       <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={`${id}-t`} aria-describedby={description ? `${id}-d` : undefined} tabIndex={-1}
         className={cn("relative max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-[12px] bg-surface p-6 shadow-[var(--shadow-float)] outline-none",
           leaving ? "animate-[fade-out_150ms_ease-out_both]" : "animate-sheet")}>
-        <h2 id={`${id}-t`} className={cn("t-heading", dismissable && "pr-10")}>{title}</h2>
-        {description && <div id={`${id}-d`} className="mt-2 text-ink-2">{description}</div>}
-        <div className="mt-6">{children}</div>
+        <div className={cn(stickyTitle && "sticky -top-6 z-10 -mx-6 -mt-6 border-b border-hairline bg-surface px-6 pb-3 pt-6")}>
+          <h2 id={`${id}-t`} className={cn("t-heading", dismissable && "pr-10")}>{title}</h2>
+          {description && <div id={`${id}-d`} className="mt-2 text-ink-2">{description}</div>}
+        </div>
+        <div className={stickyTitle ? "mt-4" : "mt-6"}>{children}</div>
         {dismissable && (
           <button type="button" data-close="1" onClick={() => onOpenChange(false)} className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-[8px] text-ink-2 hover:bg-neutral-100" aria-label="Close">
             <X size={20} />
@@ -261,6 +308,16 @@ export function ScreenHeader({ backTo, title, children, sub }: { backTo: string;
     </header>
   );
 }
+
+/** Primary action pinned at the bottom of a detail screen, above the safe area. Pair with PinnedSpacer in the scroll content. */
+export function PinnedBar({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-surface/95 px-4 pb-[calc(var(--sab)+12px)] pt-3 backdrop-blur", className)}>
+      <div className="mx-auto max-w-[600px]">{children}</div>
+    </div>
+  );
+}
+export const PinnedSpacer = ({ h = 96 }: { h?: number }) => <div aria-hidden style={{ height: `calc(${h}px + var(--sab))` }} />;
 
 /** Toasts sit above the tab bar on phone, about 4 seconds, shadow.menu. */
 export function ToastHost({ aboveTabs }: { aboveTabs: boolean }) {

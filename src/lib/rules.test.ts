@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { User, State } from "./model";
-import { activitySuggestions, describeSlots, dueOutcome, findMatches, isFindable, matchReasons, missingStep, openSlotsFor, reliabilityOf, reliabilityView, relationFor, resolveActivity, spotsLeft } from "./rules";
+import { activitySuggestions, describeSlots, dueOutcome, findMatches, isFindable, matchReasons, missingStep, openSlotsFor, reliabilityOf, reliabilityView, relationFor, resolveActivity, spotsLeft, tagCounts, hostRecord, hostLine } from "./rules";
 import { buildSeed } from "./seed";
 
 const base: User = {
@@ -53,7 +53,7 @@ test("reliability shows attendance from the first meetup and a rating only from 
   assert.equal(arjun.attended, 8);
   const v = reliabilityView(arjun);
   assert.equal(v.kind === "history" && v.line1, "Showed up to 8 of 9");
-  assert.match(v.kind === "history" ? v.line2 : "", /^Rated \d\.\d by 8 people$/);
+  assert.match(v.kind === "history" ? v.line2 : "", /^\d\.\d ★ by 8 buddies$/);
   const sofia = reliabilityView(reliabilityOf("sofia", s));
   assert.equal(sofia.kind === "history" && sofia.line2, "Too early for a rating");
   assert.equal(reliabilityView(reliabilityOf("daniel", s)).kind, "new");
@@ -94,4 +94,19 @@ test("a held request looks sent to the sender and is invisible to the person who
   s.connections.push({ id: "z2", from: "ravi", to: "arjun", status: "pending", note: "", requestedAt: new Date(Date.now() + 1000).toISOString(), held: true });
   assert.equal(relationFor(s, "ravi", "arjun").kind, "sent");
   assert.equal(relationFor(s, "arjun", "ravi").kind, "disconnected");
+});
+
+test("tags show only once 3 or more people gave them, and host record counts groups that went ahead", () => {
+  const s = buildSeed(Date.now());
+  const tags = tagCounts("arjun", s);
+  assert.ok(tags.length > 0, "Ashwin has seeded tags");
+  assert.ok(tags.every((t) => t.count >= 3));
+  assert.ok(tags.every((t, i) => i === 0 || tags[i - 1]!.count >= t.count));
+  const fake = { outcomes: [1, 2].map((i) => ({ meetupId: `x${i}`, reporter: `r${i}`, subject: "z", happened: true, rating: 5, tags: ["on_time" as const], at: "" })) };
+  assert.equal(tagCounts("z", fake).length, 0);
+  const rec = hostRecord("nadia", s);
+  assert.equal(rec.hosted, 4);
+  assert.equal(rec.wentAhead, 4);
+  assert.equal(hostLine("Nala", rec), "Nala has hosted 4 groups, all went ahead");
+  assert.equal(hostLine("Sam", { hosted: 0, wentAhead: 0 }), "First group Sam has hosted");
 });

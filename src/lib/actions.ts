@@ -1,5 +1,5 @@
 /* Every state change in the product. Each one records an event (PRD R26) so notifications can follow later. */
-import type { Provider, OutcomeReason } from "./data";
+import type { GroupLevel, Provider, OutcomeReason, TagId } from "./data";
 import type { Attendee, Meetup, State, User } from "./model";
 import { threadOf } from "./model";
 import { connectionBetween, isBlockedFromRequesting, isFindable, resolveActivity, otherOf, attendeesOf, spotsLeft } from "./rules";
@@ -183,16 +183,16 @@ export function cancelMeetup(meetupId: string, note: string) {
 /* ---------- Outcomes ---------- */
 
 /** One to one: did it happen, then a rating or a reason (PRD S9.1, S9.2). */
-export function submitOutcome(meetupId: string, subject: string, r: { happened: true; rating: number } | { happened: false; reason: OutcomeReason }) {
+export function submitOutcome(meetupId: string, subject: string, r: { happened: true; rating: number; tags?: TagId[] } | { happened: false; reason: OutcomeReason }) {
   update((d) => {
     d.outcomes.push({ meetupId, reporter: d.session!, subject, at: nowIso(), ...r });
     ev(d, "outcome_answered", { meetupId, happened: r.happened, ...(r.happened ? {} : { reason: r.reason }) });
-    if (r.happened) ev(d, "rating_submitted", { meetupId });
+    if (r.happened) ev(d, "rating_submitted", { meetupId, tags: r.tags?.length ?? 0 });
   });
 }
 
 /** Group: every attendee marks attendance for, and rates, every other attendee. No partial responses (PRD S9.3). */
-export function submitGroupOutcome(meetupId: string, answers: { happened: false; reason: OutcomeReason; subjects: string[] } | { happened: true; people: Record<string, { showed: boolean; rating?: number }> }) {
+export function submitGroupOutcome(meetupId: string, answers: { happened: false; reason: OutcomeReason; subjects: string[] } | { happened: true; people: Record<string, { showed: boolean; rating?: number; tags?: TagId[] }> }) {
   update((d) => {
     const me = d.session!;
     if (!answers.happened) {
@@ -200,7 +200,7 @@ export function submitGroupOutcome(meetupId: string, answers: { happened: false;
     } else {
       for (const [subject, p] of Object.entries(answers.people)) {
         d.outcomes.push(p.showed
-          ? { meetupId, reporter: me, subject, happened: true, rating: p.rating!, at: nowIso() }
+          ? { meetupId, reporter: me, subject, happened: true, rating: p.rating!, ...(p.tags?.length ? { tags: p.tags } : {}), at: nowIso() }
           : { meetupId, reporter: me, subject, happened: false, reason: "no_show", at: nowIso() });
       }
     }
@@ -210,11 +210,11 @@ export function submitGroupOutcome(meetupId: string, answers: { happened: false;
 
 /* ---------- Group meetups (P1) ---------- */
 
-export function createGroup(f: { activity: string; startsAt: string; place: string; note: string; spots: number; invite: string[] }): string {
+export function createGroup(f: { activity: string; startsAt: string; place: string; note: string; spots: number; invite: string[]; level: GroupLevel }): string {
   const id = `m${uid()}`;
   update((d) => {
     const me = d.session!;
-    d.meetups.push({ id, type: "group", createdBy: me, activity: f.activity, startsAt: f.startsAt, place: f.place, note: f.note, spots: f.spots, status: "scheduled", createdAt: nowIso() });
+    d.meetups.push({ id, type: "group", createdBy: me, activity: f.activity, startsAt: f.startsAt, place: f.place, note: f.note, spots: f.spots, level: f.level, status: "scheduled", createdAt: nowIso() });
     d.attendees.push({ meetupId: id, userId: me, role: "creator", status: "accepted", at: nowIso() });
     for (const u of f.invite) d.attendees.push({ meetupId: id, userId: u, role: "invitee", status: "invited", at: nowIso() });
     ev(d, "group_meetup_created", { meetupId: id, invited: f.invite.length, spots: f.spots });

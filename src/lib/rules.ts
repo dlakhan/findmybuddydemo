@@ -1,5 +1,5 @@
 /* Product rules. Pure functions so they can be unit tested (rules.test.ts). */
-import { ACTIVITY_BLOCKLIST, BC_AREAS, DAYS, LEVELS, PARTS, type Level, type WizardStep } from "./data";
+import { ACTIVITY_BLOCKLIST, BC_AREAS, DAYS, GROUP_LEVELS, LEVELS, PARTS, TAG_MIN, TAGS, type GroupLevel, type Level, type TagId, type WizardStep } from "./data";
 import type { Attendee, Connection, Meetup, Outcome, State, User } from "./model";
 
 /* ---------- Profile and findability (PRD 5.3, R9) ---------- */
@@ -163,20 +163,53 @@ export function reliabilityOf(uid: string, s: Pick<State, "outcomes" | "meetups"
 
 export type ReliabilityView =
   | { kind: "new" }
-  | { kind: "history"; line1: string; line2: string; marks: { attended: boolean; meetupId: string }[]; a11y: string };
+  | { kind: "history"; rating: string | null; ratingA11y: string; line1: string; line2: string; marks: { attended: boolean; meetupId: string }[]; a11y: string };
 
+/** Rating leads as "4.6 ★ by 8 buddies" once 3 or more people have rated; attendance sits with it (screen review 11). */
 export function reliabilityView(r: Reliability | null | undefined, maxMarks = 5): ReliabilityView {
   if (!r || r.total === 0) return { kind: "new" };
-  const line2 = r.ratingCount >= 3 && r.ratingAvg !== null ? `Rated ${r.ratingAvg.toFixed(1)} by ${r.ratingCount} people` : "Too early for a rating";
+  const hasRating = r.ratingCount >= 3 && r.ratingAvg !== null;
+  const rating = hasRating ? `${r.ratingAvg!.toFixed(1)} ★ by ${r.ratingCount} buddies` : null;
   const marks = r.marks.slice(0, maxMarks);
   return {
     kind: "history",
+    rating,
+    ratingA11y: hasRating ? `Rated ${r.ratingAvg!.toFixed(1)} out of 5 by ${r.ratingCount} buddies` : "",
     line1: `Showed up to ${r.attended} of ${r.total}`,
-    line2,
+    line2: rating ?? "Too early for a rating",
     marks,
     a11y: `Attended ${marks.filter((m) => m.attended).length} of the last ${marks.length} meetups`,
   };
 }
+
+/** Tags others gave this person, only those given by 3 or more, most given first. */
+export function tagCounts(uid: string, s: Pick<State, "outcomes">): { id: TagId; label: string; said: string; count: number }[] {
+  const counts = new Map<TagId, number>();
+  for (const o of s.outcomes) {
+    if (o.subject !== uid || o.reporter === uid || !o.happened || !o.tags) continue;
+    for (const t of o.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return TAGS.map((t) => ({ id: t.id, label: t.label, said: t.said, count: counts.get(t.id) ?? 0 }))
+    .filter((t) => t.count >= TAG_MIN)
+    .sort((a, b) => b.count - a.count);
+}
+
+/** "Hosted 4 groups, all went ahead". A group went ahead when anyone reported it happened. */
+export function hostRecord(uid: string, s: Pick<State, "meetups" | "outcomes">, now = Date.now()): { hosted: number; wentAhead: number } {
+  const past = s.meetups.filter((m) => m.type === "group" && m.createdBy === uid && m.status === "scheduled" && isPast(m, now));
+  const wentAhead = past.filter((m) => s.outcomes.some((o) => o.meetupId === m.id && o.happened)).length;
+  return { hosted: past.length, wentAhead };
+}
+export function hostLine(name: string, r: { hosted: number; wentAhead: number }) {
+  if (r.hosted === 0) return `First group ${name} has hosted`;
+  const g = r.hosted === 1 ? "1 group" : `${r.hosted} groups`;
+  const ahead = r.wentAhead === r.hosted ? (r.hosted === 1 ? "it went ahead" : r.hosted === 2 ? "both went ahead" : "all went ahead") : `${r.wentAhead} went ahead`;
+  return `${name} has hosted ${g}, ${ahead}`;
+}
+
+export const groupLevelLabel = (l: GroupLevel | undefined) => GROUP_LEVELS.find((x) => x.id === l)?.label ?? "";
+/** The viewer's level in an activity, if they play it. */
+export const levelIn = (u: Pick<User, "activities">, activity: string) => u.activities.find((a) => normaliseActivity(a.name) === normaliseActivity(activity))?.level ?? null;
 
 /* ---------- Connections (PRD 5.3) ---------- */
 
